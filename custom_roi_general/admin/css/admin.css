@@ -1,9 +1,0 @@
-/*
-    TODO: Edit button not working due to a drupal issue.
-    https://www.drupal.org/node/2338233
-    When a solution is found the issue should be updated.
-    .media-widget.form-media .button.edit rule added
-*/
-.media-widget.form-media .button.edit{
-    display: none;
-}
