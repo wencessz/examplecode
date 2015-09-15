@@ -1,0 +1,519 @@
+<?php
+
+/**
+ * Implements hook_init().
+ */
+function custom_roi_general_init() {
+  global $theme;
+  $current_path = current_path();
+
+  //bootstrap admin theme overrides. Use this stylesheet to make modifications
+  if(path_is_admin( $current_path )) {
+    drupal_add_css(drupal_get_path('module', 'custom_roi_general') . '/admin/css/admin.css',
+      array(
+        'group' => CSS_DEFAULT,
+        'weight' => 100
+      ));
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function custom_roi_general_theme($existing, $type, $theme, $path) {
+  return array(
+    'roi_contact' => array(
+      'variables' => array(
+        'info' => array(
+          'address' => '',
+          'city' => '',
+          'state' => '',
+          'zip_code' => '',
+          'phone' => '',
+          'copyright' => '',
+        )
+      ),
+      'file' => 'custom_roi_general.theme.inc',
+    ),
+    'roi_logo' => array(
+      'variables' => array(
+        'width' => '100',
+        'height' => '100',
+        'attributes' => array(),
+      ),
+      'file' => 'custom_roi_general.theme.inc',
+    ),
+    'roi_newsletter_form' => array(
+      'variables' => array(
+        'form_iframe' => '',
+        'form_title' => '',
+        'form_description' => '',
+      ),
+      'template' => 'roi-newsletter-form',
+      'path' => drupal_get_path('module', 'custom_roi_general') . '/theme',
+    ),
+    'roi_insights_section' => array(
+      'variables' => array(
+        'button_label' => '',
+        'title_legend' => '',
+        'open_legend' =>'',
+        'filter_form' =>'',
+        'insights_section' =>'',
+      ),
+      'template' => 'roi-insights-section',
+      'path' => drupal_get_path('module', 'custom_roi_general') . '/theme',
+    ),
+    'roi_contact_footer' => array(
+      'variables' => array(
+        'title' => '',
+        'subtitle' => '',
+        'description' =>'',
+        'button_label' =>'',
+        'url' =>'',
+        'bg_color' =>'',
+      ),
+      'template' => 'roi-contact-footer',
+      'path' => drupal_get_path('module', 'custom_roi_general') . '/theme',
+    ),
+    'roi_search_pager' => array(
+      'variables' => array(
+        'prev' => '',
+        'next' => '',
+      ),
+      'template' => 'roi-search-pager',
+      'path' => drupal_get_path('module', 'custom_roi_general') . '/theme',
+    ),
+    'roi_section' => array(
+      'variables' => array(
+        'class' => '',
+        'image' => '',
+        'color' => '',
+        'headline' => '',
+        'short_description' => '',
+        'button_label' => '',
+        'link' => '',
+        'custom' => array(),
+      ),
+      'template' => 'roi-section',
+      'path' => drupal_get_path('module', 'custom_roi_general') . '/theme',
+    ),
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function custom_roi_general_permission() {
+  $perms = array();
+  foreach (node_permissions_get_configured_types() as $type) {
+    $info = node_type_get_type($type);
+    $perms += array(
+      "view $type content" => array(
+        'title' => t('%type_name: View any content', array('%type_name' => $info->name)),
+      )
+    );
+  }
+  return $perms;
+}
+
+/**
+ * Implements hook_node_access().
+ */
+function custom_roi_general_node_access($node, $op, $account) {
+  $type = is_string($node) ? $node : $node->type;
+
+  if (in_array($type, node_permissions_get_configured_types())) {
+    if ($op == 'view' && user_access('view ' . $type . ' content', $account)) {
+      return NODE_ACCESS_ALLOW;
+    }
+  }
+
+  return NODE_ACCESS_IGNORE;
+}
+
+/**
+ * Implements hook_preprocess_node_{node_type}
+ * This is a custom hook to support hooks by node type.
+ * @param $variables
+ * @param $hook
+ */
+function custom_roi_general_preprocess_node_page(&$variables, $hook) {
+  $wrapper = entity_metadata_wrapper('node', $variables['node']);
+  RoiWidget::get_insight_integrated_section($variables,$wrapper);
+  RoiWidget::get_insights_section($variables,$wrapper);
+  RoiWidget::get_timeline_section($variables,$wrapper);
+  RoiWidget::get_press_awards_section($variables,$wrapper);
+  /** @todo access is always false due to a drupal issue */
+  if(!empty($variables['content']['body'])){
+    $variables['content']['body']['#access'] = TRUE;
+  }
+  $page_type = RoiMisc::getEntityWrapperPropertyValue($wrapper, 'field_page_type');
+  // Adds custom templates for page nodes based on page type
+  if(!empty($page_type)){
+    $parts = array('node', $variables['node']->type, $page_type);
+    $variables['theme_hook_suggestions'][] = implode('__', $parts);
+    $parts[] = $variables['view_mode'];
+    $variables['theme_hook_suggestions'][] = implode('__', $parts);
+  }
+}
+
+/**
+ * Implements hook_preprocess_page
+ */
+function custom_roi_general_preprocess_page(&$variables) {
+  if(!empty($variables['theme_hook_suggestions'][0]) &&  $variables['theme_hook_suggestions'][0] == 'page__search'){
+    $function = __FUNCTION__ .'_'.$variables['theme_hook_suggestions'][0];
+    if (function_exists($function)) {
+      $function($variables);
+    }
+  }
+
+  if (!empty($variables['node'])){
+    $nid = RoiMisc::node_get_parent_page($variables['node']);
+  }
+  elseif (current_path() == 'benefits') {
+    $nid = RoiMisc::getDefaultPage('insights');
+  }
+  if(!empty($nid)){
+    menu_tree_set_path('main-menu', 'node/' . $nid);
+    if(!empty($variables['node'])){
+      $variables['node']->parent_nid = $nid;
+    }
+    $variables['parent_nid'] = $nid;
+  }
+
+  // Page footer variables
+  $variables['page']['footer']['address'] = array(
+    '#theme' => 'roi_contact'
+  );
+  $variables['page']['footer']['logo'] = array(
+    '#theme' => 'roi_logo',
+    '#width' => '69',
+    '#height' => '67',
+    '#attributes' => array(
+      'id' => 'footer-logo'
+    ),
+  );
+  $variables['page']['footer']['#footer_settings'] = variable_get('roi_conf_footer', array());
+  $social_networks = variable_get('roi_social_networks', array());
+  if (!empty($social_networks) && !empty($variables['page']['footer']['#footer_settings']['social_networks'])) {
+    $social = drupal_map_assoc(array_values($variables['page']['footer']['#footer_settings']['social_networks']));
+    foreach ($social as $key) {
+      if (!empty($social_networks[$key])) {
+        $social[$key] = url($social_networks[$key]);
+      }
+      else {
+        unset($social[$key]);
+      }
+    }
+    $variables['page']['footer']['#footer_settings']['social_networks'] = $social;
+  }
+  $variables['roi_social_networks'] = array();
+  if (!empty($social_networks)) {
+    $variables['roi_social_networks'] = $social_networks;
+  }
+  //Contact Us Footer
+  if(!empty($variables['node']) && RoiMisc::node_has_contact_footer($variables['node'])){
+    $contact = variable_get('roi_conf_footer_contact_us', array());
+    if(!empty($contact['title']) && !empty($contact['button_link'])){
+      $variables['page']['footer']['custom_contact_footer'] = array(
+        '#theme' => 'roi_contact_footer',
+        '#title' => $contact['title'],
+        '#subtitle' => $contact['subtitle'],
+        '#description' => $contact['description'],
+        '#button_label' => $contact['button_label'],
+        '#url' => url($contact['button_link']),
+        '#bg_color' => $contact['bg_color'],
+      );
+    }
+  }
+
+  // Newsletter form
+  $acton_newsletter = variable_get('acton_newsletter', array());
+  if (!empty($acton_newsletter['url'])) {
+    $options = array();
+    $options['bc'] = 'newsletter-form';
+    if (!empty($acton_newsletter['css'])) {
+      $options['css'] = $acton_newsletter['css'];
+    }
+    $newsletter_form = array(
+      '#type' => 'html_tag',
+      '#value' => '',
+      '#tag' => 'iframe',
+      '#attributes' => array(
+        'class' => array('newsletter-form'),
+        'data-src' => url($acton_newsletter['url'], array('query' => $options)),
+        'width' => '100%',
+        'height' => empty($acton_newsletter['height']) ? '150' : $acton_newsletter['height'],
+        'frameborder' => '0',
+      ),
+    );
+    $variables['page']['footer']['newsletter_form'] = array(
+      '#theme' => 'roi_newsletter_form',
+      '#form_iframe' => $newsletter_form,
+      '#form_title' => $variables['page']['footer']['#footer_settings']['newsletter']['title'],
+      '#form_description' => $variables['page']['footer']['#footer_settings']['newsletter']['description'],
+    );
+  }
+}
+
+/**
+ * Implements hook_views_query_alter
+ * @param $view
+ * @param $query
+ */
+function custom_roi_general_views_query_alter(&$view, &$query) {
+
+
+  /**
+   * Modify the insights view based on the given widget options.
+   */
+  if($view->name == 'insights'){
+    $node = menu_get_object();
+    if(!empty($node)){
+      $wrapper = entity_metadata_wrapper('node', $node);
+      if(!empty($wrapper->field_widget_options)){
+        $fields = array();
+        RoiMisc::getEntityWrapperPropertyValue($wrapper->field_widget_options, 'field_number_rows') ? $field_number_rows = RoiMisc::getEntityWrapperPropertyValue($wrapper->field_widget_options, 'field_number_rows') : $field_number_rows = 3;
+        $view->set_items_per_page($field_number_rows*4);
+        $related_benefits = RoiMisc::getEntityWrapperPropertyValue($wrapper->field_widget_options, 'field_rel_benefit');
+        if($related_benefits) {
+          $fields['field_rel_benefit'] = $related_benefits;
+        }
+
+        $related_integrated_solutions = RoiMisc::getEntityWrapperPropertyValue($wrapper->field_widget_options, 'field_rel_integrated');
+        if($related_integrated_solutions) {
+          $fields['field_rel_integrated'] = $related_integrated_solutions;
+        }
+
+        $related_supplier_partners = RoiMisc::getEntityWrapperPropertyValue($wrapper->field_widget_options, 'field_rel_supplier_partners');
+        if($related_supplier_partners) {
+          $fields['field_rel_supplier_partners'] = $related_supplier_partners;
+        }
+
+        if($fields) {
+          RoiMisc::custom_add_filters_related($fields, $query);
+        }
+
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_preprocess_node()
+ */
+function custom_roi_general_preprocess_node(&$variables, $hook) {
+  RoiWidget::initialize_variables($variables);
+  $variables['custom_node_path'] = base_path().drupal_lookup_path('alias',"node/".$variables['node']->nid);
+  $variables['theme_hook_suggestions'][] = 'node__' . $variables['node']->type . '__'.$variables['view_mode'];
+  $function = __FUNCTION__ . '_' . $variables['node']->type;
+  if (function_exists($function)) {
+    $function($variables, $hook);
+  }
+}
+
+/**
+ * Implements hook_field_widget_form_alter()
+ */
+function custom_roi_general_field_widget_form_alter(&$element, &$form_state, $context) {
+  // Add a css class to widget form elements for all fields of type mytype.
+  if ($context ['field']['type'] == 'list_text' && strpos($element['#field_name'], '_color')) {
+    $element ['#attributes']['class'][] = 'color-select';
+    $element ['#attached'] = array(
+      'js' => array(
+        drupal_get_path('module', 'roi_configuration') . '/js/roi_configuration_form_tools.js',
+      ),
+      'css' => array(
+        drupal_get_path('module', 'roi_configuration') . '/css/roi_configuration_form_tools.css',
+      )
+    );
+  }
+}
+
+function custom_roi_general_element_info_alter(&$type) {
+  if (isset($type['link_field'])) {
+    $type['link_field']['#process'][] = 'custom_roi_general_field_process';
+  }
+}
+
+function custom_roi_general_field_process($element, $form_state, $complete_form) {
+  $element['title']['#title'] = t('Label');
+  return $element;
+}
+
+function custom_roi_general_preprocess_search_results(&$variables){
+  $variables['count_results'] = count($variables['results']);
+  $variables['pager'] = theme('roi_search_pager', array('tags' => array("","Prev Page","","Next Page")));
+}
+function custom_roi_general_preprocess_search_result(&$variables){
+  $variables['custom_field_thumbnail'] = "";
+  $variables['custom_field_short_description'] = "";
+  $wrapper = entity_metadata_wrapper('node', $variables['result']['node']);
+  if(!empty($wrapper->field_header)){
+    $field_thumbnail_value = $wrapper->field_header->field_thumbnail->value();
+    $variables['custom_field_thumbnail'] = !empty($field_thumbnail_value['uri']) ? image_style_url("custom_thumbnail", $field_thumbnail_value['uri']) : '';
+    $variables['custom_field_short_description']  = $wrapper->field_header->field_short_description->value();
+  }
+  if(!empty($wrapper->field_thumbnail)){
+    $field_thumbnail_value = $wrapper->field_thumbnail->value();
+    $variables['custom_field_thumbnail'] = !empty($field_thumbnail_value['uri']) ? image_style_url("custom_thumbnail", $field_thumbnail_value['uri']) : '';
+  }
+  if(!empty($wrapper->field_short_description)){
+    $variables['custom_field_short_description']  = $wrapper->field_short_description->value();
+  }
+  if(!empty($wrapper->field_text_timeline)){
+    $variables['custom_field_short_description']  = $wrapper->field_text_timeline->value();
+  }
+}
+/**
+ * Implements hook_preprocess_page
+ */
+function custom_roi_general_preprocess_page_page__search(&$variables) {
+  $variables['count_results'] = "";
+  $variables['terms_results'] = "";
+  if(!empty($variables['page']['content']['system_main']['search_form']['basic']['keys']['#default_value'])){
+    $terms = $variables['page']['content']['system_main']['search_form']['basic']['keys']['#default_value'];
+    $variables['terms_results'] = $terms;
+  }
+  if(!empty($GLOBALS['pager_total_items'][0])){
+    $variables['count_results'] = $GLOBALS['pager_total_items'][0];
+  }else{
+    $variables['count_results'] = 0;
+  }
+
+  $variables['title'] = variable_get('roi_conf_title_search');
+}
+
+function custom_roi_general_preprocess_roi_search_pager(&$variables) {
+  $param = drupal_get_query_parameters();
+  global $pager_page_array, $pager_total;
+  if(empty($param['page'])){
+    $param['page'] = 0;
+  }
+  if($pager_total[0] > $param['page'] && $pager_total[0] > 1){
+    $variables['next'] = l(t("Next Page")."<span class='glyphicon glyphicon-menu-right'></span>", current_path(), array('html' => TRUE, 'query' => array('page' => $param['page']+1)));
+  }
+  if($pager_total[0] > 1 && $param['page'] > 0){
+    $variables['prev'] = l("<span class='glyphicon glyphicon-menu-left'></span>".t("Prev Page"), current_path(), array('html' => TRUE, 'query' => array('page' => $param['page']-1)));
+  }
+}
+
+function custom_roi_general_form_search_block_form_alter(&$form, &$form_state){
+  $form['#action'] = 'search/node';
+}
+
+function custom_roi_general_form_menu_edit_item_alter(&$form, &$form_state){
+  $form['expanded']['#default_value'] = TRUE;
+}
+
+/**
+ * Implementation of hook_menu().
+ *
+ * @return An array of menu items.
+ */
+function custom_roi_general_menu() {
+  $items = array();
+
+  $types = node_type_get_types();
+  if (!empty($types['page'])) {
+    $field_page_type = field_info_field('field_page_type');
+    $page_types = $field_page_type['settings']['allowed_values'];
+    foreach ($page_types as $page_type => $page_name) {
+      $items['node/add/page/' . $page_type] = array(
+        'title' => $page_name,
+        'title callback' => 'check_plain',
+        'page callback' => 'node_add',
+        'page arguments' => array('page'),
+        'access callback' => 'node_access',
+        'access arguments' => array('create', 'page'),
+        'description' => $types['page']->description,
+        'file' => 'node.pages.inc',
+        'file path' => drupal_get_path('module', 'node'),
+        'tab_parent' => 'node/add/page',
+      );
+    }
+  }
+  return $items;
+}
+
+/**
+ * Implements hook_form_alter
+ */
+function custom_roi_general_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id === 'page_node_form' && arg(3) && !empty($form['field_page_type'][LANGUAGE_NONE])) {
+    $form['field_page_type'][LANGUAGE_NONE]['#default_value'] = arg(3);
+  }
+  if (strpos($form_id, '_node_form')) {
+    $types = node_type_get_types();
+    $form_type = str_replace('_node_form', '', $form_id);
+    if (!empty($types[$form_type])) {
+      $form['actions']['save_add'] = array(
+        '#type' => 'submit',
+        '#value' => t('Save & Another'),
+        '#access' => TRUE,
+        '#weight' => 7,
+        '#submit' => array('node_form_submit', 'custom_roi_general_form_save'),
+      );
+      $form['actions']['cancel_edit'] = array(
+        '#type' => 'submit',
+        '#value' => t('Cancel'),
+        '#access' => TRUE,
+        '#weight' => 20,
+        '#submit' => array('custom_roi_general_form_cancel'),
+        '#limit_validation_errors' => array(),
+      );
+    }
+  }
+}
+
+/**
+ * cancel button callback.
+ */
+function custom_roi_general_form_cancel($form, &$form_state) {
+  if(!empty($form_state['node']->nid)){
+    $url = 'node/' . $form_state['node']->nid;
+  }
+  else{
+    $url = 'admin/content';
+  }
+  drupal_goto($url);
+}
+
+/**
+ * save and another button callback.
+ */
+function custom_roi_general_form_save($form, &$form_state) {
+  if (!empty($_GET['destination'])) {
+    unset($_GET['destination']);
+  }
+  $type_url_str = str_replace('_', '-', $form_state['node']->type);
+  $form_state['redirect'] = 'node/add/' . $type_url_str;
+}
+
+
+function custom_roi_general_random($quantity){
+  $existsnumbers = variable_get('random_number');
+  if(empty($existsnumbers['position'])){
+    $numbers = array();
+    while(count($numbers) <= $quantity){
+      $num = rand(0,$quantity);
+      if(!in_array($num,$numbers)){
+        $numbers[] = $num;
+      }
+    }
+    $existsnumbers = array(
+      "position" => 1,
+      "numbers" => $numbers
+    );
+    variable_set('random_number',$existsnumbers);
+    return $numbers[0];
+  }
+  if($existsnumbers["position"] == count($existsnumbers["numbers"])-1){
+      variable_set('random_number',false);
+      return custom_roi_general_random($quantity);
+  }
+  $existsnumbers["position"]++;
+  variable_set('random_number',$existsnumbers);
+  return $existsnumbers["numbers"][$existsnumbers["position"]];
+}

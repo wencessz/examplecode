@@ -1,0 +1,8 @@
+name = General Implementations for ROi
+description = General Implementations for ROi
+package = ROi
+core = 7.x
+files[] = includes/RoiMisc.inc
+files[] = includes/RoiWidget.inc
+
+dependencies[] = roi_configuration
